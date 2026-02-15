@@ -51,7 +51,7 @@ export default function App() {
       {/* 3D Canvas */}
       <div className="canvas-container">
         <Canvas
-          camera={{ fov: 55, near: 0.01, far: 100, position: [1.2, 2, 1.2] }}
+          camera={{ fov: 55, near: 0.01, far: 100, position: [0.45, 0.45, 0.45] }}
           gl={{ antialias: true, toneMapping: 3 /* ACESFilmicToneMapping */ }}
           dpr={[1, 2]}
         >
@@ -72,8 +72,8 @@ export default function App() {
             <Outline
               selection={outlinedMeshes}
               blendFunction={BlendFunction.SCREEN}
-              edgeStrength={80}
-              pulseSpeed={0.4}
+              edgeStrength={10}
+              pulseSpeed={0.8}
               visibleEdgeColor={glowColor.visible}
               hiddenEdgeColor={glowColor.hidden}
               blur

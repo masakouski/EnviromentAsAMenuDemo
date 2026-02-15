@@ -5,6 +5,15 @@ const MENU_ITEMS = [
 ];
 
 export default function Menu({ activeTarget, onHover, onLeave }) {
+  const handleTap = (key) => {
+    // On touch: toggle — tap once to activate, tap again to deactivate
+    if (activeTarget === key) {
+      onLeave();
+    } else {
+      onHover(key);
+    }
+  };
+
   return (
     <div className="menu-overlay">
       {MENU_ITEMS.map((item) => (
@@ -13,6 +22,10 @@ export default function Menu({ activeTarget, onHover, onLeave }) {
           className={`menu-item ${activeTarget === item.key ? "active" : ""}`}
           onMouseEnter={() => onHover(item.key)}
           onMouseLeave={() => onLeave()}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            handleTap(item.key);
+          }}
         >
           {item.label}
         </div>

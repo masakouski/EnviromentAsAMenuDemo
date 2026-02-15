@@ -79,6 +79,50 @@ body,
   user-select: none;
 }
 
+/* ---- Mobile adjustments ---- */
+@media (max-width: 600px) {
+  .menu-overlay {
+    bottom: 24px;
+    gap: 6px;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .menu-item {
+    padding: 12px 28px;
+    font-size: 13px;
+    border-radius: 10px;
+  }
+
+  .menu-item:hover,
+  .menu-item.active {
+    transform: translateY(0) scale(1.03);
+  }
+
+  .hint-note {
+    top: 16px;
+    left: 16px;
+    padding: 10px 16px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .menu-overlay {
+    bottom: 16px;
+    gap: 4px;
+    width: calc(100% - 32px);
+  }
+
+  .menu-item {
+    padding: 10px 20px;
+    font-size: 12px;
+    width: 100%;
+    text-align: center;
+  }
+}
+
 /* ---- Loading screen ---- */
 .loading-screen {
   position: fixed;

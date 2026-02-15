@@ -7,24 +7,25 @@ import * as THREE from "three";
  * Wide shot — the default camera position showing the whole room.
  */
 const WIDE_SHOT = {
-  position: new THREE.Vector3(1.2, 2, 1.2),
-  lookAt: new THREE.Vector3(0, 0.3, 0),
+  position: new THREE.Vector3(0.45, 0.45, 0.45),
+  lookAt: new THREE.Vector3(-0.07, 0.12, 0),
 };
 
 /* Radius of the idle orbit (distance from lookAt center in the XZ plane) */
 const ORBIT_RADIUS = Math.sqrt(
-  WIDE_SHOT.position.x ** 2 + WIDE_SHOT.position.z ** 2
+  (WIDE_SHOT.position.x - WIDE_SHOT.lookAt.x) ** 2 +
+  (WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z) ** 2
 );
-const ORBIT_SPEED = 0.08; // radians per second
+const ORBIT_SPEED = 0.15; // radians per second
 
 /*
  * Per-target camera offsets from the target's center.
  * The camera will fly to  target.position + offset  and look at  target.position.
  */
 const CAMERA_OFFSETS = {
-  writing: new THREE.Vector3(0.35, 0.25, 0.25),
-  working: new THREE.Vector3(0.3, 0.5, 0.0),
-  gaming: new THREE.Vector3(0.8, 0.2, 0.0),
+  writing: new THREE.Vector3(0.15, 0.15, -0.05),
+  working: new THREE.Vector3(0.2, 0.2, -0.005),
+  gaming: new THREE.Vector3(0.2, 0.1, 0.05),
 };
 
 export default function CameraController({ activeTarget, targets }) {
@@ -32,7 +33,10 @@ export default function CameraController({ activeTarget, targets }) {
   const lookAtTarget = useRef(WIDE_SHOT.lookAt.clone());
   const tweenRef = useRef(null);
   const orbitAngle = useRef(
-    Math.atan2(WIDE_SHOT.position.x, WIDE_SHOT.position.z)
+    Math.atan2(
+      WIDE_SHOT.position.x - WIDE_SHOT.lookAt.x,
+      WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z
+    )
   );
   const isIdle = useRef(true);
 
@@ -53,9 +57,9 @@ export default function CameraController({ activeTarget, targets }) {
     } else {
       // When returning to wide shot, compute position from current orbit angle
       targetPos = new THREE.Vector3(
-        Math.sin(orbitAngle.current) * ORBIT_RADIUS,
+        WIDE_SHOT.lookAt.x + Math.sin(orbitAngle.current) * ORBIT_RADIUS,
         WIDE_SHOT.position.y,
-        Math.cos(orbitAngle.current) * ORBIT_RADIUS
+        WIDE_SHOT.lookAt.z + Math.cos(orbitAngle.current) * ORBIT_RADIUS
       );
       targetLookAt = WIDE_SHOT.lookAt.clone();
     }
@@ -86,8 +90,8 @@ export default function CameraController({ activeTarget, targets }) {
         if (!activeTarget) {
           // Sync orbit angle with where the camera ended up
           orbitAngle.current = Math.atan2(
-            camera.position.x,
-            camera.position.z
+            camera.position.x - WIDE_SHOT.lookAt.x,
+            camera.position.z - WIDE_SHOT.lookAt.z
           );
           isIdle.current = true;
         }
@@ -99,8 +103,8 @@ export default function CameraController({ activeTarget, targets }) {
   useFrame((_, delta) => {
     if (isIdle.current) {
       orbitAngle.current += ORBIT_SPEED * delta;
-      camera.position.x = Math.sin(orbitAngle.current) * ORBIT_RADIUS;
-      camera.position.z = Math.cos(orbitAngle.current) * ORBIT_RADIUS;
+      camera.position.x = WIDE_SHOT.lookAt.x + Math.sin(orbitAngle.current) * ORBIT_RADIUS;
+      camera.position.z = WIDE_SHOT.lookAt.z + Math.cos(orbitAngle.current) * ORBIT_RADIUS;
     }
     camera.lookAt(lookAtTarget.current);
   });

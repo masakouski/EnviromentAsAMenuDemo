@@ -5,16 +5,15 @@ import * as THREE from "three";
 
 /**
  * Maps a menu key to the node name inside the .glb
- * (note: the gaming proxy has a typo "taget" — matching the actual export)
  */
 const TARGET_NODE_NAMES = {
   writing: "target_writing",
   working: "target_working",
-  gaming: "taget_gaming",
+  gaming: "target_gaming",
 };
 
 export default function RoomScene({ activeTarget, onTargetsReady }) {
-  const { scene } = useGLTF("/assets/roomWithProxyCubes.glb");
+  const { scene } = useGLTF("/assets/roomWithProxyPlanes.glb");
   const targetsRef = useRef({});
 
   useEffect(() => {
