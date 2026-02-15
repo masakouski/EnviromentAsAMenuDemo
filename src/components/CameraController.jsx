@@ -11,18 +11,31 @@ const WIDE_SHOT = {
   lookAt: new THREE.Vector3(-0.07, 0.12, 0),
 };
 
-/* Radius of the idle orbit (distance from lookAt center in the XZ plane) */
+/* Spherical orbit parameters (around the lookAt center) */
 const ORBIT_RADIUS = Math.sqrt(
   (WIDE_SHOT.position.x - WIDE_SHOT.lookAt.x) ** 2 +
   (WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z) ** 2
 );
-const ORBIT_SPEED = 0.15; // radians per second
-const DRAG_SENSITIVITY = 0.004; // radians per pixel dragged
-const DRAG_RESUME_DELAY = 2000; // ms of inactivity before auto-orbit resumes
+/* Default polar angle (vertical — measured from the Y axis) */
+const DEFAULT_PHI = Math.acos(
+  (WIDE_SHOT.position.y - WIDE_SHOT.lookAt.y) /
+    WIDE_SHOT.position.distanceTo(WIDE_SHOT.lookAt)
+);
+/* Default azimuth angle (horizontal) */
+const DEFAULT_THETA = Math.atan2(
+  WIDE_SHOT.position.x - WIDE_SHOT.lookAt.x,
+  WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z
+);
+
+const ORBIT_SPEED = 0.15; // auto-orbit radians/sec
+const DRAG_SENSITIVITY_X = 0.004; // horizontal radians per pixel
+const DRAG_SENSITIVITY_Y = 0.003; // vertical radians per pixel
+const PHI_MIN = 0.3; // clamp: don't go directly above
+const PHI_MAX = Math.PI / 2 - 0.05; // clamp: don't go below horizon
+const DRAG_RETURN_DELAY = 2000; // ms before smooth return to default
 
 /*
  * Per-target camera offsets from the target's center.
- * The camera will fly to  target.position + offset  and look at  target.position.
  */
 const CAMERA_OFFSETS = {
   writing: new THREE.Vector3(0.15, 0.15, -0.05),
@@ -34,43 +47,90 @@ export default function CameraController({ activeTarget, targets }) {
   const { camera, gl } = useThree();
   const lookAtTarget = useRef(WIDE_SHOT.lookAt.clone());
   const tweenRef = useRef(null);
-  const orbitAngle = useRef(
-    Math.atan2(
-      WIDE_SHOT.position.x - WIDE_SHOT.lookAt.x,
-      WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z
-    )
-  );
-  const isIdle = useRef(true);
+  const returnTweenRef = useRef(null);
 
-  /* Drag state */
+  /* Spherical angles for orbit */
+  const theta = useRef(DEFAULT_THETA); // horizontal
+  const phi = useRef(DEFAULT_PHI); // vertical
+
+  const isIdle = useRef(true);
   const isDragging = useRef(false);
-  const lastPointerX = useRef(0);
   const autoOrbit = useRef(true);
+  const lastPointerX = useRef(0);
+  const lastPointerY = useRef(0);
   const resumeTimer = useRef(null);
 
+  /* Helper: compute camera position from spherical coords */
+  const sphericalToPosition = useCallback((th, ph) => {
+    const r = WIDE_SHOT.position.distanceTo(WIDE_SHOT.lookAt);
+    return new THREE.Vector3(
+      WIDE_SHOT.lookAt.x + r * Math.sin(ph) * Math.sin(th),
+      WIDE_SHOT.lookAt.y + r * Math.cos(ph),
+      WIDE_SHOT.lookAt.z + r * Math.sin(ph) * Math.cos(th)
+    );
+  }, []);
+
   /* ---- Pointer / touch handlers ---- */
+  const getClientXY = (e) => {
+    const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    return [x, y];
+  };
+
   const onPointerDown = useCallback((e) => {
     if (!isIdle.current) return;
     isDragging.current = true;
-    lastPointerX.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const [x, y] = getClientXY(e);
+    lastPointerX.current = x;
+    lastPointerY.current = y;
     autoOrbit.current = false;
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    if (returnTweenRef.current) returnTweenRef.current.kill();
   }, []);
 
   const onPointerMove = useCallback((e) => {
     if (!isDragging.current || !isIdle.current) return;
-    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-    const dx = clientX - lastPointerX.current;
-    orbitAngle.current -= dx * DRAG_SENSITIVITY;
-    lastPointerX.current = clientX;
+    const [x, y] = getClientXY(e);
+    const dx = x - lastPointerX.current;
+    const dy = y - lastPointerY.current;
+
+    theta.current -= dx * DRAG_SENSITIVITY_X;
+    phi.current = Math.max(PHI_MIN, Math.min(PHI_MAX, phi.current + dy * DRAG_SENSITIVITY_Y));
+
+    lastPointerX.current = x;
+    lastPointerY.current = y;
   }, []);
 
   const onPointerUp = useCallback(() => {
+    if (!isDragging.current) return;
     isDragging.current = false;
-    // Resume auto-orbit after a delay
+
+    // After delay, smoothly animate back to default angles then resume auto-orbit
     resumeTimer.current = setTimeout(() => {
-      autoOrbit.current = true;
-    }, DRAG_RESUME_DELAY);
+      // Normalize current theta relative to default to find shortest return path
+      const anglesObj = { th: theta.current, ph: phi.current };
+
+      // Find the closest equivalent of DEFAULT_THETA to the current theta
+      let targetTheta = DEFAULT_THETA;
+      while (targetTheta - anglesObj.th > Math.PI) targetTheta -= Math.PI * 2;
+      while (targetTheta - anglesObj.th < -Math.PI) targetTheta += Math.PI * 2;
+
+      if (returnTweenRef.current) returnTweenRef.current.kill();
+      returnTweenRef.current = gsap.to(anglesObj, {
+        th: targetTheta,
+        ph: DEFAULT_PHI,
+        duration: 1.0,
+        ease: "power2.inOut",
+        onUpdate: () => {
+          theta.current = anglesObj.th;
+          phi.current = anglesObj.ph;
+        },
+        onComplete: () => {
+          theta.current = DEFAULT_THETA;
+          autoOrbit.current = true;
+        },
+      });
+    }, DRAG_RETURN_DELAY);
   }, []);
 
   /* Attach / detach listeners on the canvas */
@@ -80,7 +140,6 @@ export default function CameraController({ activeTarget, targets }) {
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointerleave", onPointerUp);
-    // Touch support
     canvas.addEventListener("touchstart", onPointerDown, { passive: true });
     canvas.addEventListener("touchmove", onPointerMove, { passive: true });
     canvas.addEventListener("touchend", onPointerUp);
@@ -94,13 +153,15 @@ export default function CameraController({ activeTarget, targets }) {
       canvas.removeEventListener("touchmove", onPointerMove);
       canvas.removeEventListener("touchend", onPointerUp);
       if (resumeTimer.current) clearTimeout(resumeTimer.current);
+      if (returnTweenRef.current) returnTweenRef.current.kill();
     };
   }, [gl, onPointerDown, onPointerMove, onPointerUp]);
 
   /* Animate camera whenever the active target changes */
   useEffect(() => {
-    // Kill any running animation
     if (tweenRef.current) tweenRef.current.kill();
+    if (returnTweenRef.current) returnTweenRef.current.kill();
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
 
     let targetPos, targetLookAt;
 
@@ -113,12 +174,8 @@ export default function CameraController({ activeTarget, targets }) {
       targetPos = t.position.clone().add(offset);
       targetLookAt = t.position.clone();
     } else {
-      // When returning to wide shot, compute position from current orbit angle
-      targetPos = new THREE.Vector3(
-        WIDE_SHOT.lookAt.x + Math.sin(orbitAngle.current) * ORBIT_RADIUS,
-        WIDE_SHOT.position.y,
-        WIDE_SHOT.lookAt.z + Math.cos(orbitAngle.current) * ORBIT_RADIUS
-      );
+      const pos = sphericalToPosition(theta.current, phi.current);
+      targetPos = pos;
       targetLookAt = WIDE_SHOT.lookAt.clone();
     }
 
@@ -146,26 +203,23 @@ export default function CameraController({ activeTarget, targets }) {
       },
       onComplete: () => {
         if (!activeTarget) {
-          // Sync orbit angle with where the camera ended up
-          orbitAngle.current = Math.atan2(
-            camera.position.x - WIDE_SHOT.lookAt.x,
-            camera.position.z - WIDE_SHOT.lookAt.z
-          );
+          theta.current = DEFAULT_THETA;
+          phi.current = DEFAULT_PHI;
           isIdle.current = true;
           autoOrbit.current = true;
         }
       },
     });
-  }, [activeTarget, targets, camera]);
+  }, [activeTarget, targets, camera, sphericalToPosition]);
 
-  /* Every frame: orbit when idle (auto or dragged), always point camera at lookAt target */
+  /* Every frame: update camera from spherical coords when idle */
   useFrame((_, delta) => {
     if (isIdle.current && autoOrbit.current && !isDragging.current) {
-      orbitAngle.current += ORBIT_SPEED * delta;
+      theta.current += ORBIT_SPEED * delta;
     }
     if (isIdle.current) {
-      camera.position.x = WIDE_SHOT.lookAt.x + Math.sin(orbitAngle.current) * ORBIT_RADIUS;
-      camera.position.z = WIDE_SHOT.lookAt.z + Math.cos(orbitAngle.current) * ORBIT_RADIUS;
+      const pos = sphericalToPosition(theta.current, phi.current);
+      camera.position.copy(pos);
     }
     camera.lookAt(lookAtTarget.current);
   });
