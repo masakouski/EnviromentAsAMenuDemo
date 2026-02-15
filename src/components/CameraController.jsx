@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import gsap from "gsap";
 import * as THREE from "three";
@@ -17,6 +17,8 @@ const ORBIT_RADIUS = Math.sqrt(
   (WIDE_SHOT.position.z - WIDE_SHOT.lookAt.z) ** 2
 );
 const ORBIT_SPEED = 0.15; // radians per second
+const DRAG_SENSITIVITY = 0.004; // radians per pixel dragged
+const DRAG_RESUME_DELAY = 2000; // ms of inactivity before auto-orbit resumes
 
 /*
  * Per-target camera offsets from the target's center.
@@ -29,7 +31,7 @@ const CAMERA_OFFSETS = {
 };
 
 export default function CameraController({ activeTarget, targets }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const lookAtTarget = useRef(WIDE_SHOT.lookAt.clone());
   const tweenRef = useRef(null);
   const orbitAngle = useRef(
@@ -40,6 +42,61 @@ export default function CameraController({ activeTarget, targets }) {
   );
   const isIdle = useRef(true);
 
+  /* Drag state */
+  const isDragging = useRef(false);
+  const lastPointerX = useRef(0);
+  const autoOrbit = useRef(true);
+  const resumeTimer = useRef(null);
+
+  /* ---- Pointer / touch handlers ---- */
+  const onPointerDown = useCallback((e) => {
+    if (!isIdle.current) return;
+    isDragging.current = true;
+    lastPointerX.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    autoOrbit.current = false;
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+  }, []);
+
+  const onPointerMove = useCallback((e) => {
+    if (!isDragging.current || !isIdle.current) return;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const dx = clientX - lastPointerX.current;
+    orbitAngle.current -= dx * DRAG_SENSITIVITY;
+    lastPointerX.current = clientX;
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    isDragging.current = false;
+    // Resume auto-orbit after a delay
+    resumeTimer.current = setTimeout(() => {
+      autoOrbit.current = true;
+    }, DRAG_RESUME_DELAY);
+  }, []);
+
+  /* Attach / detach listeners on the canvas */
+  useEffect(() => {
+    const canvas = gl.domElement;
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointerleave", onPointerUp);
+    // Touch support
+    canvas.addEventListener("touchstart", onPointerDown, { passive: true });
+    canvas.addEventListener("touchmove", onPointerMove, { passive: true });
+    canvas.addEventListener("touchend", onPointerUp);
+
+    return () => {
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointerleave", onPointerUp);
+      canvas.removeEventListener("touchstart", onPointerDown);
+      canvas.removeEventListener("touchmove", onPointerMove);
+      canvas.removeEventListener("touchend", onPointerUp);
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    };
+  }, [gl, onPointerDown, onPointerMove, onPointerUp]);
+
   /* Animate camera whenever the active target changes */
   useEffect(() => {
     // Kill any running animation
@@ -49,6 +106,7 @@ export default function CameraController({ activeTarget, targets }) {
 
     if (activeTarget && targets[activeTarget]) {
       isIdle.current = false;
+      autoOrbit.current = false;
       const t = targets[activeTarget];
       const offset =
         CAMERA_OFFSETS[activeTarget] || new THREE.Vector3(0.4, 0.3, 0.4);
@@ -94,15 +152,18 @@ export default function CameraController({ activeTarget, targets }) {
             camera.position.z - WIDE_SHOT.lookAt.z
           );
           isIdle.current = true;
+          autoOrbit.current = true;
         }
       },
     });
   }, [activeTarget, targets, camera]);
 
-  /* Every frame: orbit when idle, always point camera at lookAt target */
+  /* Every frame: orbit when idle (auto or dragged), always point camera at lookAt target */
   useFrame((_, delta) => {
-    if (isIdle.current) {
+    if (isIdle.current && autoOrbit.current && !isDragging.current) {
       orbitAngle.current += ORBIT_SPEED * delta;
+    }
+    if (isIdle.current) {
       camera.position.x = WIDE_SHOT.lookAt.x + Math.sin(orbitAngle.current) * ORBIT_RADIUS;
       camera.position.z = WIDE_SHOT.lookAt.z + Math.cos(orbitAngle.current) * ORBIT_RADIUS;
     }
